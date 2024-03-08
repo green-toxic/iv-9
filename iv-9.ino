@@ -2,6 +2,7 @@
 #include "RTClib.h"
 #include "GyverButton.h"
 #include "GyverTimers.h"
+#include "EEPROMex.h"
 
 RTC_DS3231 rtc;
 
@@ -15,6 +16,9 @@ RTC_DS3231 rtc;
 #define SET_DATE     3
 #define SET_MONTH    4
 #define SET_YEAR     5
+#define SET_ALARM_HOURS   6
+#define SET_ALARM_MINUTES 7
+#define SET_ALARM_SOUND   8
 #define SHOW_DATE    10
 
 #define DOT_1        A1
@@ -39,6 +43,11 @@ byte date = 1;
 byte month = 1;
 byte year = 24;
 
+byte alarm_hours   = 0;
+byte alarm_minutes = 0;
+byte alarm_melody  = 0; // задумка сделать несколько мелодий, пока просто пик
+byte run_alarm     = 0;
+byte skip_alarm    = 0;
 
 byte synh_count = 0;
 
@@ -75,9 +84,18 @@ void setup() {
     digitalWrite(DOT_1, 1);
     digitalWrite(DOT_2, 1);
 
-    //pinMode(BEEP, OUTPUT);
-    //digitalWrite(BEEP, 0);
+    if (EEPROM.readByte(100) != 88) {   // проверка на первый запуск
+      EEPROM.writeByte(100, 88);
+      EEPROM.writeByte(0, 8);     // часы будильника
+      EEPROM.writeByte(1, 0);     // минуты будильника
+      EEPROM.writeByte(2, 0);     // по умолчанию выключен
+    }
     
+    alarm_hours   =  EEPROM.readByte(0);
+    alarm_minutes =  EEPROM.readByte(1);
+    alarm_melody  =  EEPROM.readByte(2);
+    
+
     synhTime();
     Timer1.setFrequency(2);
     Timer1.enableISR();
@@ -107,36 +125,15 @@ ISR(TIMER1_A) {
       if (hours == 24) {
         hours=0;
       }
+
+      if (run_alarm) {
+          beep(LONG_BEEP);        
+      }
   }
 }
 
-
 /*
-void loop() {
-    for (size_t i = 0; i < 16; ++i) {
-        Serial.print("set port high: ");
-        Serial.println(i);
-
-        ioex[0].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::H);
-        ioex[1].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::H);
-        ioex[2].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::H);
-        delay(100);
-    }
-
-    for (size_t i = 0; i < 16; ++i) {
-        Serial.print("set port low: ");
-        Serial.println(i);
-
-        ioex[0].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::L);
-        ioex[1].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::L);
-        ioex[2].write(static_cast<PCA95x5::Port::Port>(i), PCA95x5::Level::L);
-        delay(500);
-    }
-}
-*/
-
-/*
-сементы еденицы - бит, старший точка на цифрф 7 бит 
+сементы еденицы - бит, старший точка на цифру 7 бит 
 +---+   5
 |   | ----- 7
 |   |   4
@@ -159,7 +156,7 @@ byte font_lo[10] = {
     0b1111100                                        
 };
 /*
-сементы деятки - бит, младьший точка на цифрф 7 бит 
+сементы деятки - бит, младьший точка на цифру 7 бит 
 +---+   8
 |   | ----- 6 
 |   |   5
@@ -204,6 +201,12 @@ void showDigits(word number, byte section, word mask=0) {
   byte low = font_lo[ number % 10 ]; // младший разряд
     
   ioex[section].write(~( (low<<8)+hi | mask ) );
+}
+
+void saveEEPROM() {
+    EEPROM.writeByte(0, alarm_hours);     
+    EEPROM.writeByte(1, alarm_minutes);     
+    EEPROM.writeByte(2, alarm_melody);     
 }
 
 void synhTime() {
@@ -255,12 +258,30 @@ void dotsOff() {
 void incrMode(){
   if (mode == SHOW_TIME) seconds = 0; // установка времени сбрасывем секунды в 0
   
-  mode ++; // следующий режим
+  if ( mode < SET_ALARM_HOURS) {
+    mode ++; // следующий режим
+  }
   
-  if ( mode > SET_YEAR ) {
+  if ( mode > SET_YEAR) {
     mode = SHOW_TIME; 
     rtc.adjust(DateTime(2000 + year, month, date, hours, minutes, 0));
   }
+}
+
+void incrAlarmMode(){
+  if (mode >= SET_ALARM_HOURS ) {
+    mode ++;
+  }
+  if (mode > SET_ALARM_SOUND ) {
+    mode = SHOW_TIME; 
+    saveEEPROM();
+    synhTime();
+  }
+}
+
+
+void offAlarm(){
+  skip_alarm = 1;
 }
 
 void call_butons(){
@@ -276,11 +297,19 @@ void call_butons(){
     incrMode();
     beep(LONG_BEEP);
   }
- 
+  
   if (butt[3].isHolded()) {
+    if ( mode == SHOW_TIME ) {
+      mode = SET_ALARM_HOURS;
+      dotsOff();
+    } else if (mode == SET_ALARM_HOURS) {
+      mode = SHOW_TIME;
+    }
+    beep(LONG_BEEP);
   }
-
+ 
   if (butt[0].isClick()){
+    offAlarm();
     if ( (mode > SHOW_TIME) && ( mode <= SET_YEAR ) ) {
       incrMode();
       beep(SHORT_BEEP);
@@ -297,16 +326,25 @@ void call_butons(){
   }
   
   if (butt[1].isClick()) {
+    offAlarm();
     switch(mode){
-      case SHOW_TIME: 
-        if (bright < 4) bright++;
-      break;  
       case SET_HOURS:
           if (hours > 0 ) hours--; else hours = 23;
       break;
       case SET_MINUTES:
           if (minutes > 0 ) minutes--; else minutes = 59;
       break;
+      
+      case SET_ALARM_HOURS:
+          if (alarm_hours > 0 ) alarm_hours--; else alarm_hours = 23;
+      break;
+      case SET_ALARM_MINUTES:
+          if (alarm_minutes > 0 ) alarm_minutes--; else alarm_minutes = 59;
+      break;
+      case SET_ALARM_SOUND:
+          if (alarm_melody > 0 ) alarm_melody--; else alarm_melody = 1;
+      break;
+      
       case SET_DATE:
           if (date > 1 ) date--; else date = 31;
       break;
@@ -322,16 +360,26 @@ void call_butons(){
   }
   
   if (butt[2].isClick()) {
+    offAlarm();
     switch(mode){
-      case SHOW_TIME: 
-        if (bright > 1 ) bright--;
-      break;  
       case SET_HOURS:
           if (hours < 23 ) hours++; else hours = 0;
       break;
       case SET_MINUTES:
           if (minutes < 59 ) minutes++; else minutes = 0;
       break;
+
+      case SET_ALARM_HOURS:
+          if (alarm_hours < 23 ) alarm_hours++; else alarm_hours = 0;
+      break;
+      case SET_ALARM_MINUTES:
+          if (alarm_minutes < 59 ) alarm_minutes++; else alarm_minutes = 0;
+      break;
+      case SET_ALARM_SOUND:
+          if (alarm_melody < 1 ) alarm_melody++; else alarm_melody = 0;
+      break;
+
+      
       case SET_DATE:
           if (date < 31 ) date++; else date = 1;
       break;
@@ -346,6 +394,8 @@ void call_butons(){
   }
   
   if (butt[3].isClick()) {
+    offAlarm();
+    incrAlarmMode();
   }
 
   
@@ -371,6 +421,15 @@ void loop() {
       if (synh_count==0) { // раз в 256 сек синкаем врямя с RTC
         synhTime();
       }
+      
+    run_alarm = 0;      
+    if (alarm_hours == hours && minutes == alarm_minutes ) { // логика включеня звука будильника
+      if (!skip_alarm && alarm_melody ) {
+          run_alarm = 1;        
+      }
+    } else {
+      skip_alarm = 0;
+    };
     break;
     
     case SHOW_DATE: 
@@ -391,6 +450,15 @@ void loop() {
     break;
     case SET_YEAR:
       showHighlighted(date,month,year,SECONDS);
+    break;
+    case SET_ALARM_HOURS:
+      showHighlighted(alarm_hours,alarm_minutes,alarm_melody,HOURS);
+    break;
+    case SET_ALARM_MINUTES:
+      showHighlighted(alarm_hours,alarm_minutes,alarm_melody,MINUTES);
+    break;
+    case SET_ALARM_SOUND:
+      showHighlighted(alarm_hours,alarm_minutes,alarm_melody,SECONDS);
     break;
 
   }
