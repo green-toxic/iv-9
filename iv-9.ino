@@ -3,6 +3,7 @@
 #include "GyverButton.h"
 #include "GyverTimers.h"
 #include "EEPROMex.h"
+#include <FastLED.h>
 
 RTC_DS3231 rtc;
 
@@ -24,10 +25,12 @@ RTC_DS3231 rtc;
 #define DOT_1        A1
 #define DOT_2        A3
 #define BEEP         A0
+#define LED_PIN      3
 
 #define TONE         3100 //резонасная частота пищалки
 #define SHORT_BEEP   50
 #define LONG_BEEP    150
+#define NUM_LEDS     6
 
 PCA9555 ioex[3];
 
@@ -52,6 +55,9 @@ byte skip_alarm    = 0;
 byte synh_count = 0;
 
 GButton butt[4];
+
+//Светодиоды
+CRGB leds[NUM_LEDS];
 
 byte highlight_count = 0;
 
@@ -99,6 +105,11 @@ void setup() {
     synhTime();
     Timer1.setFrequency(2);
     Timer1.enableISR();
+    
+    //Настройка светодиодов
+    FastLED.addLeds <WS2812B, LED_PIN, GRB> (leds, NUM_LEDS);
+    FastLED.setBrightness (255);
+    offLed();    
 }
 
 ISR(TIMER1_A) {  
@@ -126,10 +137,28 @@ ISR(TIMER1_A) {
         hours=0;
       }
 
-      if (run_alarm) {
-          beep(LONG_BEEP);        
-      }
   }
+  
+  if (run_alarm) {
+     beep(LONG_BEEP);        
+     flasher(current);
+  }
+  
+}
+
+void flasher(byte odd) {
+    //LED.setBrightness(255);  
+    for(int i = 0; i < NUM_LEDS/2; i++) {
+      if (odd) {
+        leds[i] = CRGB::Red;
+        leds[i+3] = CRGB::Blue;
+      } else {
+        leds[i] = CRGB::Blue;
+        leds[i+3] = CRGB::Red;
+      }
+      FastLED.show();
+    }
+    
 }
 
 /*
@@ -279,9 +308,16 @@ void incrAlarmMode(){
   }
 }
 
+void offLed() {
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB::Black;
+  }
+  FastLED.show();
+}
 
 void offAlarm(){
   skip_alarm = 1;
+  offLed();
 }
 
 void call_butons(){
