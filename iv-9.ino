@@ -1,8 +1,8 @@
 #include <PCA95x5.h>
-#include "RTClib.h"
-#include "GyverButton.h"
-#include "GyverTimers.h"
-#include "EEPROMex.h"
+#include <RTClib.h>
+#include <GyverButton.h>
+#include <GyverTimers.h>
+#include <EEPROMex.h>
 #include <FastLED.h>
 
 RTC_DS3231 rtc;
@@ -58,8 +58,13 @@ GButton butt[4];
 
 //Светодиоды
 CRGB leds[NUM_LEDS];
+byte led_brightness = 128;
+char led_mode = 0;
+uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 byte highlight_count = 0;
+
+#include "led.h"
 
 void setup() {
     Serial.begin(115200);
@@ -83,6 +88,7 @@ void setup() {
     
     for (int i=0; i<=3; ++i) {
       butt[i].setType(LOW_PULL);
+      butt[i].setClickTimeout(600);
     }
     pinMode(DOT_1, OUTPUT);
     pinMode(DOT_2, OUTPUT);
@@ -90,17 +96,22 @@ void setup() {
     digitalWrite(DOT_1, 1);
     digitalWrite(DOT_2, 1);
 
-    if (EEPROM.readByte(100) != 88) {   // проверка на первый запуск
-      EEPROM.writeByte(100, 88);
+    if (EEPROM.readByte(100) != 89) {   // проверка на первый запуск
+      EEPROM.writeByte(100, 89);
       EEPROM.writeByte(0, 8);     // часы будильника
       EEPROM.writeByte(1, 0);     // минуты будильника
       EEPROM.writeByte(2, 0);     // по умолчанию выключен
+      EEPROM.writeByte(3, led_brightness); // яркость подстветки
+      EEPROM.writeByte(4, led_mode);       // режим подсветки
+      EEPROM.writeByte(5, gHue);           // цвет подсветки
     }
     
-    alarm_hours   =  EEPROM.readByte(0);
-    alarm_minutes =  EEPROM.readByte(1);
-    alarm_melody  =  EEPROM.readByte(2);
-    
+    alarm_hours    =  EEPROM.readByte(0);
+    alarm_minutes  =  EEPROM.readByte(1);
+    alarm_melody   =  EEPROM.readByte(2);
+    led_brightness =  EEPROM.readByte(3);
+    led_mode       =  EEPROM.readByte(4);
+    gHue           =  EEPROM.readByte(5);
 
     synhTime();
     Timer1.setFrequency(2);
@@ -108,7 +119,7 @@ void setup() {
     
     //Настройка светодиодов
     FastLED.addLeds <WS2812B, LED_PIN, GRB> (leds, NUM_LEDS);
-    FastLED.setBrightness (255);
+    
     offLed();    
 }
 
@@ -146,19 +157,18 @@ ISR(TIMER1_A) {
   
 }
 
-void flasher(byte odd) {
-    //LED.setBrightness(255);  
-    for(int i = 0; i < NUM_LEDS/2; i++) {
-      if (odd) {
-        leds[i] = CRGB::Red;
-        leds[i+3] = CRGB::Blue;
-      } else {
-        leds[i] = CRGB::Blue;
-        leds[i+3] = CRGB::Red;
-      }
-      FastLED.show();
-    }
-    
+void led_effects() {
+  if (led_mode >=0) {
+    gPatterns[led_mode]();
+    FastLED.setBrightness(led_brightness);
+    FastLED.show();  
+    // insert a delay to keep the framerate modest
+    FastLED.delay(1000/FRAMES_PER_SECOND); 
+    // do some periodic updates
+    EVERY_N_MILLISECONDS( 1000 ) { gHue++; } // slowly cycle the "base color" through the rainbow
+  } else {
+    offLed();
+  }  
 }
 
 /*
@@ -236,6 +246,9 @@ void saveEEPROM() {
     EEPROM.writeByte(0, alarm_hours);     
     EEPROM.writeByte(1, alarm_minutes);     
     EEPROM.writeByte(2, alarm_melody);     
+    EEPROM.writeByte(3, led_brightness);     
+    EEPROM.writeByte(4, led_mode);
+    EEPROM.writeByte(5, gHue);
 }
 
 void synhTime() {
@@ -308,13 +321,6 @@ void incrAlarmMode(){
   }
 }
 
-void offLed() {
-  for(int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CRGB::Black;
-  }
-  FastLED.show();
-}
-
 void offAlarm(){
   skip_alarm = 1;
   offLed();
@@ -360,8 +366,8 @@ void call_butons(){
       synhTime();
     }
   }
-  
-  if (butt[1].isClick()) {
+
+  if (butt[1].isSingle()) {
     offAlarm();
     switch(mode){
       case SET_HOURS:
@@ -390,12 +396,11 @@ void call_butons(){
       case SET_YEAR:
           if (year > 0 ) year--; else year = 99;
       break;
-      
     }
     beep(SHORT_BEEP);
   }
   
-  if (butt[2].isClick()) {
+  if (butt[2].isSingle()) {
     offAlarm();
     switch(mode){
       case SET_HOURS:
@@ -434,22 +439,27 @@ void call_butons(){
     incrAlarmMode();
   }
 
+  if (butt[1].isDouble()) {
+    if ( mode == SHOW_TIME ) {
+      if (led_mode>=0 ) led_mode--;
+      beep(SHORT_BEEP);
+      saveEEPROM();
+    }
+  }
+  
+  if (butt[2].isDouble()) {
+    if ( mode == SHOW_TIME ) {
+      if (led_mode < LED_EFFECTS_NUM ) led_mode++;
+      beep(SHORT_BEEP);
+      saveEEPROM();
+    }
+  }
   
 };
 
 void loop() {
   call_butons();
-  
-  //delay(10);
-  /*
-  int analog = analogRead(2);
-  byte low = analog % 100;
-  byte hi = analog / 100;
-  clearAll();
-  showDigits(hi,MINUTES);
-  showDigits(low,SECONDS);
-  delay(50);
-  */  
+  led_effects();
   
   switch(mode){
     case SHOW_TIME: 
@@ -498,5 +508,6 @@ void loop() {
     break;
 
   }
+
   
 }
