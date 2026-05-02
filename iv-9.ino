@@ -367,8 +367,17 @@ void call_butons(){
     }
   }
 
+  if (butt[1].isClick()){
+      beep(SHORT_BEEP);   
+  }
+  
+  if (butt[2].isClick()){
+      beep(SHORT_BEEP);   
+  }
+  
   if (butt[1].isSingle()) {
     offAlarm();
+ 
     switch(mode){
       case SET_HOURS:
           if (hours > 0 ) hours--; else hours = 23;
@@ -397,11 +406,11 @@ void call_butons(){
           if (year > 0 ) year--; else year = 99;
       break;
     }
-    beep(SHORT_BEEP);
   }
   
   if (butt[2].isSingle()) {
     offAlarm();
+//    beep(SHORT_BEEP);
     switch(mode){
       case SET_HOURS:
           if (hours < 23 ) hours++; else hours = 0;
@@ -431,7 +440,6 @@ void call_butons(){
           if (year < 99 ) year++; else year = 0;
       break;
     }
-    beep(SHORT_BEEP);
   }
   
   if (butt[3].isClick()) {
