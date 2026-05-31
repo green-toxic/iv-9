@@ -58,7 +58,7 @@ GButton butt[4];
 
 //Светодиоды
 CRGB leds[NUM_LEDS];
-byte led_brightness = 128;
+byte led_brightness = 16;
 char led_mode = 0;
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
@@ -405,12 +405,18 @@ void call_butons(){
       case SET_YEAR:
           if (year > 0 ) year--; else year = 99;
       break;
+      case  SHOW_TIME:
+          if ( led_brightness > 8 ) {
+            led_brightness=led_brightness - 8;
+            saveEEPROM();
+          }
+      break;
     }
   }
   
   if (butt[2].isSingle()) {
     offAlarm();
-//    beep(SHORT_BEEP);
+    
     switch(mode){
       case SET_HOURS:
           if (hours < 23 ) hours++; else hours = 0;
@@ -439,13 +445,21 @@ void call_butons(){
       case SET_YEAR:
           if (year < 99 ) year++; else year = 0;
       break;
+      
+      case SHOW_TIME:
+          if ( led_brightness < 248 ) {
+            led_brightness=led_brightness + 8;
+            saveEEPROM();
+          }
+      break;
+      
     }
   }
   
   if (butt[3].isClick()) {
     offAlarm();
     incrAlarmMode();
-  }
+  };
 
   if (butt[1].isDouble()) {
     if ( mode == SHOW_TIME ) {
@@ -453,7 +467,7 @@ void call_butons(){
       beep(SHORT_BEEP);
       saveEEPROM();
     }
-  }
+  };
   
   if (butt[2].isDouble()) {
     if ( mode == SHOW_TIME ) {
@@ -461,7 +475,7 @@ void call_butons(){
       beep(SHORT_BEEP);
       saveEEPROM();
     }
-  }
+  };
   
 };
 
